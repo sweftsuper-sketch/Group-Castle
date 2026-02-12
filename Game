@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Mini Doom Mobile ULTRA</title>
+<style>
+html, body { margin:0; padding:0; background:#000; color:#0f0; font-family: monospace; touch-action:none; }
+#hud { position: fixed; top: 8px; left: 8px; z-index:10; background:rgba(0,0,0,0.5); padding:4px 8px; border:1px solid #0f0; }
+canvas { display:block; image-rendering: pixelated; }
+.btn { position: fixed; bottom: 20px; width: 70px; height: 70px; border-radius: 50%; background: rgba(0,255,0,0.25); border: 2px solid #0f0; color:#0f0; font-size:24px; text-align:center; line-height:66px; user-select:none; }
+#left { left: 20px; }
+#right { left: 110px; }
+#up { right: 200px; }
+#down { right: 110px; }
+#fire { right: 20px; background: rgba(255,0,0,0.3); border-color:#f00; color:#f00; }
+</style>
+</head>
+<body>
+<div id="hud">HP: <span id="hp">100</span> | Key: <span id="key">No</span> | Level: <span id="lvl">1</span></div>
+<canvas id="game"></canvas>
+<div id="left" class="btn">◀</div>
+<div id="right" class="btn">▶</div>
+<div id="up" class="btn">▲</div>
+<div id="down" class="btn">▼</div>
+<div id="fire" class="btn">🔥</div>
+
+<script>
+const canvas = game;
+const ctx = canvas.getContext('2d');
+const hpEl = hp, keyEl = key, lvlEl = lvl;
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight;} addEventListener('resize',resize); resize();
+
+// Higher visual quality
+ctx.imageSmoothingEnabled = false;
+
+// --- BETTER TEXTURES ---
+const wallTex = new Image(); wallTex.src = 'https://i.imgur.com/9z3sKQp.png'; // brick
+const doorTex = new Image(); doorTex.src = 'https://i.imgur.com/2gXKQ9J.png'; // door
+const floorTex = new Image(); floorTex.src = 'https://i.imgur.com/2RXSsQH.png';
+const enemyTex = new Image(); enemyTex.src = 'https://i.imgur.com/7yUvePI.png';
+const bossTex = new Image(); bossTex.src = 'https://i.imgur.com/4Qy6s6h.png';
+const gunTex = new Image(); gunTex.src = 'https://i.imgur.com/4JXqQZC.png';
+
+// --- SOUNDS ---
+const sndShoot = new Audio('https://actions.google.com/sounds/v1/weapons/medium_laser_shot.ogg');
+const sndHit = new Audio('https://actions.google.com/sounds/v1/impacts/crash.ogg');
+const sndDoor = new Audio('https://actions.google.com/sounds/v1/foley/metal_clank.ogg');
+
+// --- LEVEL DATA (same as before, simplified) ---
+const levels = [
+{ map:[[1,1,1,1,1,1,1,1,1,1],[1,0,0,0,0,0,0,0,3,1],[1,0,1,0,1,0,1,0,0,1],[1,0,0,0,0,0,0,0,0,1],[1,0,1,1,1,0,1,1,2,1],[1,0,0,0,0,0,0,0,0,1],[1,1,1,1,1,1,1,1,1,1]], enemies:[{x:6.5,y:2.5,hp:2},{x:3.5,y:4.5,hp:2}]},
+{ map:[[1,1,1,1,1,1,1,1,1,1],[1,0,0,0,0,0,0,0,0,1],[1,0,1,1,1,0,1,1,0,1],[1,0,0,0,3,0,0,0,0,1],[1,0,1,1,1,0,1,1,2,1],[1,0,0,0,0,0,0,0,0,1],[1,1,1,1,1,1,1,1,1,1]], enemies:[{x:6.5,y:3.5,hp:3},{x:2.5,y:5.5,hp:3}]}
+];
+
+const bossLevel = { map:[[1,1,1,1,1,1,1,1,1,1],[1,0,0,0,0,0,0,0,0,1],[1,0,0,0,0,0,0,0,0,1],[1,0,0,0,0,0,0,0,0,1],[1,0,0,0,0,0,0,0,0,1],[1,0,0,0,0,0,0,0,0,1],[1,1,1,1,1,1,1,1,1,1]], boss:{x:5,y:3.5,hp:30} };
+
+let levelIndex=0, map, enemies, boss=null;
+let px=2.5, py=2.5, pa=0, hpVal=100, hasKey=false;
+const fov=Math.PI/3;
+
+function loadLevel(){
+  if(levelIndex < levels.length){ map=JSON.parse(JSON.stringify(levels[levelIndex].map)); enemies=levels[levelIndex].enemies.map(e=>({...e})); boss=null; }
+  else { map=JSON.parse(JSON.stringify(bossLevel.map)); enemies=[]; boss={...bossLevel.boss}; }
+  px=2.5; py=2.5; pa=0; hasKey=false; lvlEl.textContent=levelIndex+1;
+}
+
+let moveForward=false, moveBackward=false, turnLeft=false, turnRight=false;
+function bind(id,d,u){const e=document.getElementById(id);e.ontouchstart=x=>{x.preventDefault();d();};e.ontouchend=x=>{x.preventDefault();u();};}
+bind('up',()=>moveForward=true,()=>moveForward=false);
+bind('down',()=>moveBackward=true,()=>moveBackward=false);
+bind('left',()=>turnLeft=true,()=>turnLeft=false);
+bind('right',()=>turnRight=true,()=>turnRight=false);
+bind('fire',()=>fire(),()=>{});
+
+function cell(x,y){return map[Math.floor(y)]?.[Math.floor(x)];}
+function isWall(x,y){return cell(x,y)===1 || cell(x,y)===2;}
+function norm(a){while(a<-Math.PI)a+=Math.PI*2;while(a>Math.PI)a-=Math.PI*2;return a;}
+
+function fire(){ sndShoot.currentTime=0; sndShoot.play();
+  for(let e of enemies){const dx=e.x-px,dy=e.y-py,d=Math.hypot(dx,dy),a=Math.atan2(dy,dx);
+    if(Math.abs(norm(a-pa))<0.12 && d<7){ e.hp--; sndHit.play(); }}
+  if(boss){const dx=boss.x-px,dy=boss.y-py,d=Math.hypot(dx,dy),a=Math.atan2(dy,dx);
+    if(Math.abs(norm(a-pa))<0.15 && d<9){ boss.hp--; sndHit.play(); }}
+}
+
+function updateEnemies(){
+  for(let e of enemies){ if(e.hp<=0) continue;
+    const dx=px-e.x, dy=py-e.y, d=Math.hypot(dx,dy);
+    if(d<0.6) hpVal-=0.25;
+    if(d<7){ e.x+=dx/d*0.015; e.y+=dy/d*0.015; }
+  }
+  if(boss){ const dx=px-boss.x, dy=py-boss.y, d=Math.hypot(dx,dy);
+    if(d<1.2) hpVal-=0.6;
+    if(d<9){ boss.x+=dx/d*0.01; boss.y+=dy/d*0.01; }
+  }
+}
+
+function update(){
+  const s=0.05,r=0.04; if(turnLeft)pa-=r; if(turnRight)pa+=r;
+  let nx=px, ny=py;
+  if(moveForward){nx+=Math.cos(pa)*s; ny+=Math.sin(pa)*s;}
+  if(moveBackward){nx-=Math.cos(pa)*s; ny-=Math.sin(pa)*s;}
+
+  if(cell(nx,ny)===3){ hasKey=true; map[Math.floor(ny)][Math.floor(nx)]=0; }
+  if(cell(nx,ny)===2 && hasKey){ map[Math.floor(ny)][Math.floor(nx)]=0; sndDoor.play(); }
+
+  if(!isWall(nx,py))px=nx; if(!isWall(px,ny))py=ny;
+  updateEnemies();
+
+  if(enemies.every(e=>e.hp<=0) && !boss){ levelIndex++; loadLevel(); }
+  if(boss && boss.hp<=0){ alert('BOSS DEFEATED!'); levelIndex=0; loadLevel(); hpVal=100; }
+
+  hpEl.textContent = Math.max(0,hpVal|0);
+  keyEl.textContent = hasKey?'Yes':'No';
+}
+
+function renderWalls(){
+  for(let x=0;x<canvas.width;x++){
+    const ra=pa-fov/2+(x/canvas.width)*fov;
+    let d=0, hit=false, hitType=1;
+    while(!hit && d<20){ d+=0.04;
+      const rx=px+Math.cos(ra)*d, ry=py+Math.sin(ra)*d;
+      const c = cell(rx,ry);
+      if(c>0){ hit=true; hitType=c; }
+    }
+    const cd=d*Math.cos(ra-pa);
+    const h=canvas.height/(cd+0.0001);
+    const tx = Math.floor((d*40)%64);
+    const tex = hitType===2 ? doorTex : wallTex;
+    ctx.drawImage(tex, tx,0,1,64, x,(canvas.height-h)/2,1,h);
+
+    // distance fog
+    const fog = Math.min(1, cd/8);
+    ctx.fillStyle = `rgba(0,0,0,${fog*0.5})`;
+    ctx.fillRect(x,(canvas.height-h)/2,1,h);
+  }
+}
+
+function renderEnemies(){
+  for(let e of enemies){ if(e.hp<=0) continue;
+    const dx=e.x-px,dy=e.y-py,d=Math.hypot(dx,dy),a=norm(Math.atan2(dy,dx)-pa);
+    if(Math.abs(a)<fov/2){ const size=canvas.height/d, sx=(0.5+a/fov)*canvas.width;
+      ctx.drawImage(enemyTex, sx-size/2, canvas.height/2-size/2, size, size); }
+  }
+  if(boss){ const dx=boss.x-px,dy=boss.y-py,d=Math.hypot(dx,dy),a=norm(Math.atan2(dy,dx)-pa);
+    if(Math.abs(a)<fov/2){ const size=canvas.height/d*1.6, sx=(0.5+a/fov)*canvas.width;
+      ctx.drawImage(bossTex, sx-size/2, canvas.height/2-size/2, size, size); }
+  }
+}
+
+function renderGun(){
+  ctx.drawImage(gunTex, canvas.width/2-150, canvas.height-220, 300, 220);
+}
+
+function render(){
+  // sky + floor gradient
+  const g=ctx.createLinearGradient(0,0,0,canvas.height/2);
+  g.addColorStop(0,'#223'); g.addColorStop(1,'#000');
+  ctx.fillStyle=g; ctx.fillRect(0,0,canvas.width,canvas.height/2);
+  const f=ctx.createLinearGradient(0,canvas.height/2,0,canvas.height);
+  f.addColorStop(0,'#020'); f.addColorStop(1,'#000');
+  ctx.fillStyle=f; ctx.fillRect(0,canvas.height/2,canvas.width,canvas.height/2);
+
+  renderWalls(); renderEnemies(); renderGun();
+}
+
+function loop(){ if(hpVal>0){ update(); render(); } else { ctx.fillStyle='#f00'; ctx.font='48px monospace'; ctx.fillText('YOU DIED', canvas.width/2-120, canvas.height/2); }
+  requestAnimationFrame(loop);
+}
+
+loadLevel(); loop();
+</script>
+</body>
+</html>
