@@ -1,0 +1,197 @@
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const GRID = 20;
+
+let snake, dir, fruit, enemies, bullets, score, gameActive, weapon = 'gun';
+let allTimeFruits = parseInt(localStorage.getItem('snakeFruits')) || 0;
+
+// Setup Event Listeners
+document.getElementById('upBtn').onclick = () => changeDir(0, -GRID);
+document.getElementById('downBtn').onclick = () => changeDir(0, GRID);
+document.getElementById('leftBtn').onclick = () => changeDir(-GRID, 0);
+document.getElementById('rightBtn').onclick = () => changeDir(GRID, 0);
+document.getElementById('actionBtn').onclick = useWeapon;
+document.getElementById('startBtn').onclick = startGame;
+document.getElementById('backBtn').onclick = showMenu;
+
+document.getElementById('btn-gun').onclick = () => setWeapon('gun');
+document.getElementById('btn-sword').onclick = () => setWeapon('sword');
+document.getElementById('btn-spear').onclick = () => setWeapon('spear');
+
+function updateMenu() {
+    document.getElementById('totalFruit').innerText = allTimeFruits;
+    const sBtn = document.getElementById('btn-sword');
+    const pBtn = document.getElementById('btn-spear');
+    
+    sBtn.disabled = allTimeFruits < 25;
+    pBtn.disabled = allTimeFruits < 50;
+    sBtn.style.opacity = allTimeFruits < 25 ? "0.3" : "1";
+    pBtn.style.opacity = allTimeFruits < 50 ? "0.3" : "1";
+}
+
+function setWeapon(w) {
+    weapon = w;
+    document.querySelectorAll('.weapon-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('btn-' + w).classList.add('active');
+}
+
+function startGame() {
+    snake = [{x: 100, y: 100}, {x: 80, y: 100}];
+    dir = {x: GRID, y: 0};
+    enemies = []; bullets = []; score = 0;
+    spawnFruit();
+    gameActive = true;
+    document.getElementById('menu').style.display = 'none';
+    document.getElementById('overlay').style.display = 'none';
+}
+
+function showMenu() {
+    gameActive = false;
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('menu').style.display = 'flex';
+    updateMenu();
+}
+
+function changeDir(x, y) {
+    if (x !== -dir.x || y !== -dir.y) dir = {x, y};
+}
+
+function useWeapon() {
+    if (!gameActive) return;
+    const h = snake[0];
+    if (weapon === 'gun') {
+        bullets.push({x: h.x+10, y: h.y+10, dx: dir.x*0.6, dy: dir.y*0.6, type: 'bullet'});
+    } else if (weapon === 'sword') {
+        bullets.push({x: h.x+10 + dir.x, y: h.y+10 + dir.y, life: 4, type: 'slash'});
+    } else if (weapon === 'spear') {
+        bullets.push({x: h.x+10, y: h.y+10, dx: dir.x*1.2, dy: dir.y*1.2, type: 'spear'});
+    }
+}
+
+function isSafeZone(x, y) {
+    return !(x > 250 && y > 250); // Avoid the D-pad area
+}
+
+function spawnFruit() {
+    let fx, fy;
+    do {
+        fx = Math.floor(Math.random() * (400/GRID)) * GRID;
+        fy = Math.floor(Math.random() * (400/GRID)) * GRID;
+    } while (!isSafeZone(fx, fy));
+    fruit = {x: fx, y: fy};
+}
+
+function spawnEnemy() {
+    let ex, ey;
+    do {
+        ex = Math.random() < 0.5 ? 0 : 380;
+        ey = Math.floor(Math.random() * (400/GRID)) * GRID;
+    } while (!isSafeZone(ex, ey));
+
+    const r = Math.random();
+    let type = r > 0.8 ? 'tank' : (r > 0.6 ? 'sprinter' : 'normal');
+
+    enemies.push({
+        x: ex, y: ey,
+        type: type,
+        hp: type === 'tank' ? 3 : 1,
+        moveCounter: 0,
+        moveDelay: type === 'sprinter' ? 1 : (type === 'tank' ? 4 : 2)
+    });
+}
+
+function update() {
+    if (!gameActive) return;
+
+    const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+
+    // Collision
+    if (head.x < 0 || head.x >= 400 || head.y < 0 || head.y >= 400 || 
+        snake.some(s => s.x === head.x && s.y === head.y)) {
+        gameActive = false;
+        document.getElementById('overlay').style.display = 'flex';
+        document.getElementById('finalScore').innerText = "Score: " + score;
+        return;
+    }
+
+    snake.unshift(head);
+    if (head.x === fruit.x && head.y === fruit.y) {
+        score += 10; allTimeFruits++;
+        localStorage.setItem('snakeFruits', allTimeFruits);
+        spawnFruit();
+    } else { snake.pop(); }
+
+    if (Math.random() < 0.02) spawnEnemy();
+    
+    enemies.forEach((en, i) => {
+        en.moveCounter++;
+        if (en.moveCounter >= en.moveDelay) {
+            en.moveCounter = 0;
+            if (en.x < fruit.x) en.x += GRID;
+            else if (en.x > fruit.x) en.x -= GRID;
+            else if (en.y < fruit.y) en.y += GRID;
+            else if (en.y > fruit.y) en.y -= GRID;
+        }
+        if (en.x === fruit.x && en.y === fruit.y) {
+            enemies.splice(i, 1); spawnFruit(); score = Math.max(0, score - 5);
+        }
+    });
+
+    bullets.forEach((b, bi) => {
+        if (b.type === 'slash') { 
+            b.life--; if(b.life <= 0) bullets.splice(bi, 1); 
+        } else { 
+            b.x += b.dx; b.y += b.dy; 
+            if(b.x < 0 || b.x > 400 || b.y < 0 || b.y > 400) bullets.splice(bi, 1); 
+        }
+
+        enemies.forEach((en, ei) => {
+            let hitDist = b.type === 'slash' ? 40 : 15;
+            if (Math.abs(b.x - (en.x+10)) < hitDist && Math.abs(b.y - (en.y+10)) < hitDist) {
+                en.hp--;
+                if (b.type !== 'spear' && b.type !== 'slash') bullets.splice(bi, 1);
+                if (en.hp <= 0) { enemies.splice(ei, 1); score += 20; }
+            }
+        });
+    });
+
+    draw();
+}
+
+function draw() {
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 400, 400);
+
+    // Subtle Grid
+    ctx.strokeStyle = '#111';
+    for(let i=0; i<400; i+=GRID) {
+        ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,400); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(400,i); ctx.stroke();
+    }
+
+    ctx.fillStyle = '#f00'; ctx.fillRect(fruit.x+2, fruit.y+2, 16, 16);
+
+    snake.forEach((p, i) => {
+        ctx.fillStyle = i === 0 ? '#0f0' : '#0a0';
+        ctx.fillRect(p.x+1, p.y+1, 18, 18);
+    });
+
+    enemies.forEach(en => {
+        ctx.fillStyle = en.type === 'tank' ? '#800' : (en.type === 'sprinter' ? '#f80' : '#80f');
+        ctx.fillRect(en.x+2, en.y+2, en.type === 'tank' ? 18 : 14, en.type === 'tank' ? 18 : 14);
+    });
+
+    bullets.forEach(b => {
+        if (b.type === 'slash') {
+            ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(b.x, b.y, 30, 0, 7); ctx.stroke();
+        } else {
+            ctx.fillStyle = b.type === 'spear' ? '#0ff' : '#ff0';
+            ctx.fillRect(b.x-2, b.y-2, 5, 5);
+        }
+    });
+    
+    document.getElementById('scoreVal').innerText = score;
+    document.getElementById('totalFruit').innerText = allTimeFruits;
+}
+
+updateMenu();
+setInterval(update, 150);
