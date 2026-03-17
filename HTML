@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Snake: Grid Master</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="game-wrapper">
+        <div class="stats-bar">
+            SCORE: <span id="scoreVal">0</span><br>
+            TOTAL: <span id="totalFruit">0</span>
+        </div>
+        
+        <canvas id="game" width="400" height="400"></canvas>
+        
+        <div class="controls">
+            <div class="btn" id="upBtn">▲</div>
+            <div class="btn" id="leftBtn">◀</div>
+            <div class="btn shoot-btn" id="actionBtn">🎯</div>
+            <div class="btn" id="rightBtn">▶</div>
+            <div class="btn" id="downBtn">▼</div>
+        </div>
+
+        <div id="menu">
+            <h2 style="color:#0f0">SELECT WEAPON</h2>
+            <button id="btn-gun" class="weapon-btn active">GUN</button>
+            <button id="btn-sword" class="weapon-btn">SWORD (25 Fruits)</button>
+            <button id="btn-spear" class="weapon-btn">SPEAR (50 Fruits)</button>
+            <button id="startBtn" class="main-btn">START</button>
+        </div>
+
+        <div id="overlay" style="display:none">
+            <h1 style="color: #f00;">GAME OVER</h1>
+            <p id="finalScore"></p>
+            <button id="backBtn" class="main-btn">BACK TO MENU</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
